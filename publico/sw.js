@@ -3,7 +3,7 @@
    copia guardada si no hay internet, así nunca queda pegada una versión vieja.
    El aviso de «Versión nueva» de la app no depende de esto: funciona igual
    en el navegador, sin instalar. Solo guarda archivos de este mismo sitio. */
-const CACHE = 'clubfitness-v202611270630';
+const CACHE = 'clubfitness-v202611270700';
 
 self.addEventListener('install', () => self.skipWaiting());
 

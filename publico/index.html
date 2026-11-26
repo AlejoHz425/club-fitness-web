@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<script>var CF_VERSION = '202611270630';</script>
+<script>var CF_VERSION = '202611270700';</script>
 <style>:root{color-scheme:dark}html,body{margin:0;height:100%}img{max-width:100%}[hidden]{display:none!important}</style>
 </head>
 <body>
@@ -1060,6 +1060,12 @@ const MONL=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','s
 function ymd(d){const z=n=>String(n).padStart(2,'0');return d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate());}
 function parseYmd(s){const p=String(s).split('-');return new Date(+p[0],+p[1]-1,+p[2]);}
 function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}
+/* meses de calendario, como los cuenta el servidor: el 31 de enero + 1 mes
+   cae el 28 de febrero, no el 3 de marzo */
+function sumaMeses(d,n){const x=new Date(d),dia=x.getDate();
+  x.setDate(1);x.setMonth(x.getMonth()+n);
+  const tope=new Date(x.getFullYear(),x.getMonth()+1,0).getDate();
+  x.setDate(Math.min(dia,tope));return x;}
 function daysBetween(a,b){return Math.round((parseYmd(b)-parseYmd(a))/864e5);}
 function fmtD(s){const d=parseYmd(s);return DOW[d.getDay()]+' '+d.getDate()+' '+MON[d.getMonth()];}
 function fmtDL(d){if(!d)return '—';return fmtDL_(d);}
@@ -2034,13 +2040,15 @@ const A={
   },
   toggleFreeze(mid){
     const m=Q.member(mid);m.frozen=!m.frozen;DBX.save();
-    NET.empujar('cf_membresia',{p_ref:mid,p_accion:'congelar'});
+    /* los 5 nombres siempre: con 3 el servidor no sabia a cual llamar */
+    NET.empujar('cf_membresia',{p_ref:mid,p_accion:'congelar',
+      p_plan:null,p_meses:null});
     return m.frozen;
   },
   renew(mid,months,planK){
     const m=Q.member(mid);
     const base = daysBetween(today(),m.planEnd)>0 ? parseYmd(m.planEnd) : new Date();
-    m.planEnd=ymd(addDays(base,months*30));DBX.save();
+    m.planEnd=ymd(sumaMeses(base,months));DBX.save();
     NET.empujar('cf_membresia',{p_ref:mid,p_accion:'renovar',
       p_plan:planK||m.plan,p_meses:months});
     return m.planEnd;
