@@ -1,0 +1,40 @@
+#!/bin/bash
+# ═══════════════════════════════════════════════════════════════
+# CLUB FITNESS · despliegue automático
+# SPanel lo ejecuta al traer un cambio nuevo del repositorio.
+# Copia lo que hay en publico/ a la carpeta del sitio, y antes
+# guarda una copia de la versión que estaba puesta.
+# ═══════════════════════════════════════════════════════════════
+set -euo pipefail
+
+REPO="$(cd "$(dirname "$0")" && pwd)"
+SITIO="/home/auraspe/club.auras.pe"
+VIEJAS="/home/auraspe/respaldo_club"
+SELLO="$(date +%Y%m%d_%H%M%S)"
+
+[ -d "$SITIO" ] || { echo "✗ no existe $SITIO"; exit 1; }
+[ -d "$REPO/publico" ] || { echo "✗ el repositorio no trae publico/"; exit 1; }
+
+# 1 · copia de lo que está publicado ahora, por si hay que volver
+mkdir -p "$VIEJAS/$SELLO"
+for f in index.html sw.js; do
+  [ -f "$SITIO/$f" ] && cp -p "$SITIO/$f" "$VIEJAS/$SELLO/" || true
+done
+# solo se guardan las últimas 20
+ls -1dt "$VIEJAS"/*/ 2>/dev/null | tail -n +21 | xargs -r rm -rf
+
+# 2 · publicar
+cp -p "$REPO/publico/index.html" "$SITIO/index.html"
+cp -p "$REPO/publico/sw.js"      "$SITIO/sw.js"
+for f in manifest.webmanifest favicon-32.png apple-touch-icon.png icon-192.png icon-512.png icon-512-maskable.png .htaccess; do
+  [ -f "$REPO/publico/$f" ] && cp -p "$REPO/publico/$f" "$SITIO/$f" || true
+done
+chmod 644 "$SITIO/index.html" "$SITIO/sw.js"
+
+# 3 · comprobar que quedó la versión que se esperaba
+V="$(grep -o "var CF_VERSION = '[0-9]\{12\}'" "$SITIO/index.html" | head -1 | grep -o "[0-9]\{12\}")"
+C="$(grep -o "clubfitness-v[0-9]\{12\}" "$SITIO/sw.js" | head -1 | grep -o "[0-9]\{12\}")"
+if [ -z "$V" ] || [ "$V" != "$C" ]; then
+  echo "✗ la versión y la caché no coinciden (app=$V sw=$C)"; exit 1
+fi
+echo "✓ CLUB FITNESS publicado · versión $V · copia anterior en $VIEJAS/$SELLO"

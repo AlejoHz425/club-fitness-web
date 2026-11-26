@@ -1,0 +1,18 @@
+{
+  "id": "./",
+  "name": "Club Fitness",
+  "short_name": "Club Fitness",
+  "description": "Reserva tus clases, tu pase QR, tus medidas y tu plan de nutrición.",
+  "lang": "es-PE",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#09090A",
+  "theme_color": "#09090A",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
