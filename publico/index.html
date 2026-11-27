@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<script>var CF_VERSION = '202611270700';</script>
+<script>var CF_VERSION = '202611270830';</script>
 <style>:root{color-scheme:dark}html,body{margin:0;height:100%}img{max-width:100%}[hidden]{display:none!important}</style>
 </head>
 <body>
@@ -1066,6 +1066,28 @@ function sumaMeses(d,n){const x=new Date(d),dia=x.getDate();
   x.setDate(1);x.setMonth(x.getMonth()+n);
   const tope=new Date(x.getFullYear(),x.getMonth()+1,0).getDate();
   x.setDate(Math.min(dia,tope));return x;}
+/* ¿Se le acabaron las clases de su ciclo? El ciclo lo calcula el club:
+   arranca en su primera clase y se reinicia solo cada tantos meses. */
+function sinSesiones(m){
+  const c=m&&m.ciclo; if(!c||c.clases==null) return false;
+  return (+c.usadas||0) >= (+c.clases);
+}
+/* cuántas clases lleva de su tanda; en rojo si ya se le acabaron */
+function sesLinea(m){
+  const c=m&&m.ciclo; if(!c||c.clases==null) return '';
+  const u=+c.usadas||0, t=+c.clases, fin=u>=t;
+  return '<div class="tiny'+(fin?'':' dim')+'" style="margin-top:3px'+
+    (fin?';color:var(--bad);font-weight:700':'')+'">'+u+' de '+t+' sesiones</div>';
+}
+/* Hasta cuándo pagó, en palabras. Sin fecha NO es «vencida»: es un dato
+   que al club todavía le falta anotar. */
+function venceTxt(m){
+  if(!m||!m.planEnd) return 'sin fecha de vencimiento';
+  const d=daysBetween(today(),m.planEnd);
+  return d<0 ? 'venció el '+fmtDL(m.planEnd)
+     : d===0 ? 'vence hoy'
+             : 'válido hasta el '+fmtDL(m.planEnd);
+}
 function daysBetween(a,b){return Math.round((parseYmd(b)-parseYmd(a))/864e5);}
 function fmtD(s){const d=parseYmd(s);return DOW[d.getDay()]+' '+d.getDate()+' '+MON[d.getMonth()];}
 function fmtDL(d){if(!d)return '—';return fmtDL_(d);}
@@ -1108,8 +1130,9 @@ function ident(m){return (m&&m.dni)?String(m.dni):'Sin DNI';}
 function identL(m){return (m&&m.dni)?('DNI '+m.dni):'Sin DNI';}
 window.ident=ident; window.identL=identL;
 
-window.CF = {P,ic,$,$$,esc,clamp,uid,PEN,PEN2,DOW,DOWL,MON,MONL,ymd,parseYmd,addDays,daysBetween,
-  fmtD,fmtDL,today,nowMin,t2m,m2t,h12,h12p,initials,ident,identL,rel,rnd,KCAL_H};
+window.CF = {P,ic,$,$$,esc,clamp,uid,PEN,PEN2,DOW,DOWL,MON,MONL,ymd,parseYmd,addDays,sumaMeses,
+  daysBetween,fmtD,fmtDL,today,nowMin,t2m,m2t,h12,h12p,initials,ident,identL,rel,rnd,KCAL_H,
+  sinSesiones,sesLinea,venceTxt};
 })();
 </script>
 <script>
@@ -1293,11 +1316,15 @@ function aplicar(p){
   db.members = (p.socios||[]).map(m=>({
     id:m.id, uid:m.uid, dni:m.dni||'', name:m.name, sex:m.sex||'', edad:m.edad,
     born:m.born||'', plan:m.plan||null, joined:m.joined,
-    /* El mes del socio corre desde su PRIMERA CLASE: si estreno el 20 de
-       noviembre, su mes cierra el 20 de diciembre. Eso es lo que manda en
-       la app; la fecha que trae la hoja del club se guarda aparte. */
+    /* Dos relojes distintos, y no hay que mezclarlos:
+       · planEnd  = hasta cuándo PAGÓ. Manda en vencidos, cobros y avisos.
+       · ciclo    = la tanda de clases, que corre desde su PRIMERA clase y
+                    se reinicia sola cada tantos meses. Manda en el conteo
+                    de sesiones, y en nada más.
+       Si planEnd viene vacío es que al club le falta anotarlo: eso sale en
+       «Falta», no como vencido. */
     ciclo: m.ciclo||null,
-    planEnd: (m.ciclo&&m.ciclo.fin) || m.planEnd || null,
+    planEnd: m.planEnd||null,
     venceHoja: m.planEnd||null,
     active:m.active!==false, frozen:!!m.frozen, ses:m.ses,
     goal:m.goal||'', dir:m.dir||'mantener', phone:m.phone||'', email:m.email||'',
@@ -1434,7 +1461,7 @@ window.CFNET = {
 (function(){
 'use strict';
 const C=window.CF,DBX=window.CFDB;
-const {ic,$,$$,esc,clamp,uid,PEN,DOW,DOWL,MON,ymd,parseYmd,addDays,daysBetween,fmtD,fmtDL,
+const {ic,$,$$,esc,clamp,uid,PEN,DOW,DOWL,MON,ymd,parseYmd,addDays,sumaMeses,daysBetween,fmtD,fmtDL,
        today,nowMin,t2m,m2t,initials,rel}=C;
 
 /* ═══ ESTADO ══════════════════════════════════════════════ */
@@ -2240,8 +2267,11 @@ function meterBar(pct,cls){
 }
 function planPill(m){
   const p=plan(m.plan),d=daysBetween(today(),m.planEnd);
+  if(!m.active)return '<span class="pill p-n">Inactivo</span>';
   if(m.frozen)return '<span class="pill p-n">'+ic('snow',11)+' Congelada</span>';
-  if(d<0)return '<span class="pill p-bad"><i class="dot"></i> Vencida</span>';
+  if(m.planEnd&&d<0)return '<span class="pill p-bad"><i class="dot"></i> Vencida</span>';
+  if(C.sinSesiones(m))return '<span class="pill p-bad"><i class="dot"></i> Sin sesiones</span>';
+  if(!m.planEnd)return '<span class="pill p-warn"><i class="dot"></i> Sin fecha</span>';
   if(d<=7)return '<span class="pill p-warn"><i class="dot"></i> Vence en '+d+' d</span>';
   return '<span class="pill p-ch">'+esc(p.n)+'</span>';
 }
@@ -2323,7 +2353,8 @@ V.inicio=function(u){
     aforoNow!=null?['Aforo ahora',aforoNow+'%']:['Aforo de hoy',aforoDay+'%'],
     ['Clases hoy',dayS.length],
     ['Socios activos',DBX.db.members.filter(x=>x.active&&!x.frozen).length],
-    ['Tu plan',plan(m.plan).n],['Renovación',dEnd>=0?'en '+dEnd+' días':'vencida'],
+    ['Tu plan',plan(m.plan).n],
+    ['Renovación', !m.planEnd?'sin fecha':dEnd>=0?'en '+dEnd+' días':'vencida'],
     ['Entrenadores',5],['Salas',4]
   ];
   const mqi=mq.map(x=>'<span class="mq-i">'+esc(x[0])+' <b>'+esc(x[1])+'</b></span>').join('');
@@ -2416,7 +2447,7 @@ V.inicio=function(u){
     '<div class="qr-code" style="font-size:31px">'+esc(ident(m))+'</div>'+
     '<div style="font-size:15px;font-weight:700;letter-spacing:-.015em;margin-top:6px">'+esc(m.name)+'</div>'+
     '<div class="tiny dim" style="margin-top:2px">Plan '+esc(plan(m.plan).n)+' · '+
-      (dLeftC<0?'venció el '+esc(fmtDL(m.planEnd)):'válido hasta el '+esc(fmtDL(m.planEnd)))+'</div></div>'+
+      esc(C.venceTxt(m))+'</div></div>'+
     '<div class="hair"></div>'+
     '<p class="tiny dim" style="margin:0;line-height:1.5">Di tu DNI en recepción al llegar. '+
       'Si ya reservaste, puedes marcar tu llegada desde aquí.</p>'+
@@ -2533,10 +2564,14 @@ V.reservar=function(u){
 
   /* ── franja de membresía: plan, clases, alta y renovación ── */
   const pl=plan(m.plan);
+  /* el mismo conteo que ve el club: la tanda del socio, no el mes del
+     calendario, que daba un número distinto en cada pantalla */
   const mesIni=today().slice(0,8)+'01';
-  const usadas=DBX.db.bookings.filter(b=>b.m===m.id&&b.date>=mesIni&&
-    ['confirmada','asistio'].indexOf(b.st)>=0).length;
-  const quedan = pl.classes!=null ? Math.max(0,pl.classes-usadas) : null;
+  const usadas = (m.ciclo&&m.ciclo.usadas!=null) ? +m.ciclo.usadas
+    : DBX.db.bookings.filter(b=>b.m===m.id&&b.date>=mesIni&&
+        ['confirmada','asistio'].indexOf(b.st)>=0).length;
+  const tope = (m.ciclo&&m.ciclo.clases!=null) ? +m.ciclo.clases : pl.classes;
+  const quedan = tope!=null ? Math.max(0,tope-usadas) : null;
   const dias = m.planEnd ? daysBetween(today(),m.planEnd) : null;
 
   /* el club solo maneja dos ritmos: interdiario y diario */
@@ -3308,9 +3343,13 @@ function heatColor(p){
    ═══════════════════════════════════════════════════════════ */
 V.panel=function(){
   const ms=DBX.db.members;
-  const active=ms.filter(x=>x.active&&!x.frozen&&daysBetween(today(),x.planEnd)>=0);
+  /* sin fecha anotada NO es vencido: es un dato que falta, y ese socio
+     sigue siendo activo mientras el club no diga otra cosa */
+  const active=ms.filter(x=>x.active&&!x.frozen&&
+    (!x.planEnd||daysBetween(today(),x.planEnd)>=0));
   const frozen=ms.filter(x=>x.frozen);
-  const expired=ms.filter(x=>daysBetween(today(),x.planEnd)<0&&!x.frozen);
+  const expired=ms.filter(x=>x.planEnd&&daysBetween(today(),x.planEnd)<0&&!x.frozen);
+  const sinSes=ms.filter(x=>x.active&&!x.frozen&&C.sinSesiones(x));
   const mrr=active.reduce((a,x)=>a+(planMes(plan(x.plan))||0),0);
   const risks=ms.map(x=>({m:x,r:Q.risk(x.id)})).filter(x=>x.r.lvl>=2&&!x.r.frozen)
     .sort((a,b)=>b.r.lvl-a.r.lvl||b.r.gap-a.r.gap);
@@ -3345,13 +3384,14 @@ V.panel=function(){
     .sort((a,b)=>b.pct-a.pct);
 
   /* vencimientos próximos */
-  const soon=ms.filter(x=>!x.frozen).map(x=>({m:x,d:daysBetween(today(),x.planEnd)}))
+  const soon=ms.filter(x=>!x.frozen&&x.planEnd).map(x=>({m:x,d:daysBetween(today(),x.planEnd)}))
     .filter(x=>x.d>=-30&&x.d<=10).sort((a,b)=>a.d-b.d);
 
   let h='<div class="stack">';
 
   h+='<div class="grid g4 g-stats">'+
-    tile('Socios activos',active.length,'',frozen.length+' congelados · '+expired.length+' vencidos','','users')+
+    tile('Socios activos',active.length,'',frozen.length+' congelados · '+expired.length+
+      ' vencidos'+(sinSes.length?' · '+sinSes.length+' sin sesiones':''),'','users')+
     tile('Ingreso recurrente',PEN(mrr),'','al mes, solo membresías','','money')+
     tile('Ocupación media',occ,'%','últimos 28 días',occ>=70?'up':occ>=50?'fl':'dn','chart')+
     tile('En riesgo',risks.length,'','socios que hay que llamar',risks.length?'dn':'up','alert')+
@@ -3455,10 +3495,12 @@ V.socios=function(){
   let list=DBX.db.members.slice();
   if(qs)list=list.filter(m=>(m.name+' '+(m.dni||'')+' '+m.email+' '+m.phone).toLowerCase().indexOf(qs)>=0);
   if(f==='riesgo')list=list.filter(m=>Q.risk(m.id).lvl>=2);
-  if(f==='vencidos')list=list.filter(m=>daysBetween(today(),m.planEnd)<0&&!m.frozen);
+  if(f==='vencidos')list=list.filter(m=>m.planEnd&&daysBetween(today(),m.planEnd)<0&&!m.frozen);
+  if(f==='sinses')list=list.filter(m=>m.active&&!m.frozen&&C.sinSesiones(m));
   if(f==='congelados')list=list.filter(m=>m.frozen);
   if(f==='falta'){
-    list=list.filter(m=>Q.faltaInfo(m).length);
+    /* a una ficha dada de baja no hay nada que completarle */
+    list=list.filter(m=>m.active&&Q.faltaInfo(m).length);
     /* primero los que ni siquiera pueden entrar a la app */
     list.sort((a,b)=>(a.dni?1:0)-(b.dni?1:0)||
                      Q.faltaInfo(b).length-Q.faltaInfo(a).length||
@@ -3476,7 +3518,10 @@ V.socios=function(){
     list.sort((a,b)=>orden.indexOf(a.id)-orden.indexOf(b.id));
   }
 
-  const nFalta=DBX.db.members.filter(m=>!m.demo&&Q.faltaInfo(m).length).length;
+  const nFalta=DBX.db.members.filter(m=>!m.demo&&m.active&&Q.faltaInfo(m).length).length;
+  const nVenc=DBX.db.members.filter(m=>m.planEnd&&!m.frozen&&
+    daysBetween(today(),m.planEnd)<0).length;
+  const nSin=DBX.db.members.filter(m=>m.active&&!m.frozen&&C.sinSesiones(m)).length;
   const parDe={}; repes.forEach(x=>{parDe[x.a.id]=x; parDe[x.b.id]=x;});
 
   let h='<div class="stack">';
@@ -3485,7 +3530,9 @@ V.socios=function(){
       '<span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--dim);pointer-events:none">'+ic('search',15)+'</span>'+
       '<input class="inp" id="socQ" placeholder="Buscar por nombre, DNI o teléfono" value="'+esc(S.ctx.q||'')+'" style="padding-left:36px">'+
     '</div>'+
-    '<div class="seg scroll-x">'+[['todos','Todos'],['riesgo','Riesgo'],['vencidos','Vencidos'],
+    '<div class="seg scroll-x">'+[['todos','Todos'],['riesgo','Riesgo'],
+        ['vencidos','Vencidos'+(nVenc?' · '+nVenc:'')],
+        ['sinses','Sin sesiones'+(nSin?' · '+nSin:'')],
         ['congelados','Congelados'],
         ['falta','Falta'+(nFalta?' · '+nFalta:'')],
         ['repes','Repetidas'+(repes.length?' · '+repes.length:'')]].map(k=>
@@ -3505,16 +3552,16 @@ V.socios=function(){
 
   const ultima = f==='falta'?'Qué falta' : f==='repes'?'Se parece a' : 'Riesgo';
   h+='<div class="desliza">Desliza la tabla de lado para ver el resto y los botones →</div>';
-  h+='<div class="tbl-wrap"><table><thead><tr><th>Socio</th><th>Plan</th><th>Estado</th>'+
+  h+='<div class="tbl-wrap"><table><thead><tr><th>Socio</th><th>Estado</th><th>Plan</th>'+
     '<th class="r">Clases 30 d</th><th>Última visita</th><th>'+esc(ultima)+'</th><th class="r">Acciones</th></tr></thead><tbody>'+
     (list.length?list.map(m=>{
       const r=Q.risk(m.id), lv=Q.lastVisit(m.id);
       const n30=Q.attendedSince(m.id,addD(-30));
       return '<tr><td><div class="cellp"><div class="av sm gh">'+esc(initials(m.name))+'</div>'+
         '<div style="min-width:0"><b>'+esc(m.name)+'</b><span>'+esc(ident(m))+'</span></div></div></td>'+
+        '<td>'+planPill(m)+C.sesLinea(m)+'</td>'+
         '<td><span class="pill p-n">'+esc(plan(m.plan).n)+'</span><div class="tiny dim" style="margin-top:3px">'+
           PEN(plan(m.plan).price)+'/mes</div></td>'+
-        '<td>'+planPill(m)+'</td>'+
         '<td class="r bold">'+n30+'</td>'+
         '<td class="mut tiny">'+(lv?esc(rel(lv)):'Nunca')+'</td>'+
         '<td>'+(
@@ -4184,7 +4231,7 @@ M.credentials=function(m){
     body:'<div class="card card-pad" style="text-align:center;background:var(--bg2)">'+
       '<div class="av lg" style="margin:0 auto 14px">'+esc(initials(m.name))+'</div>'+
       '<div style="font-size:18px;font-weight:800;letter-spacing:-.025em">'+esc(m.name)+'</div>'+
-      '<div class="tiny dim" style="margin-top:3px">'+esc(plan(m.plan).n)+' · vence el '+esc(fmtDL(m.planEnd))+'</div>'+
+      '<div class="tiny dim" style="margin-top:3px">'+esc(plan(m.plan).n)+' · '+esc(C.venceTxt(m))+'</div>'+
       '<div class="hair" style="margin:19px 0"></div>'+
       '<div class="grid g2" style="gap:14px">'+
         '<div><p class="eyebrow">Su DNI</p><div class="qr-code" style="font-size:27px;margin-top:6px">'+esc(ident(m))+'</div></div>'+
@@ -4228,8 +4275,10 @@ M.member=function(mid){
       '<div><p class="eyebrow" style="margin-bottom:10px">Membresía</p>'+
       '<div class="card card-pad"><div class="row btw" style="gap:12px;flex-wrap:wrap">'+
         '<div><div style="font-size:15px;font-weight:800">'+esc(plan(m.plan).n)+' · '+PEN(plan(m.plan).price)+'/mes</div>'+
-        '<div class="tiny dim" style="margin-top:2px">'+(dEnd<0?'Venció hace '+(-dEnd)+' días':'Vence en '+dEnd+' días')+
-          ' · '+esc(fmtDL(m.planEnd))+'</div></div>'+
+        '<div class="tiny dim" style="margin-top:2px">'+esc(
+          !m.planEnd?'Falta anotar hasta cuándo pagó'
+          : dEnd<0?'Venció hace '+(-dEnd)+' días · '+fmtDL(m.planEnd)
+                  :'Vence en '+dEnd+' días · '+fmtDL(m.planEnd))+'</div></div>'+
         '<div class="row" style="gap:7px">'+
           '<button class="btn btn-gh btn-sm" data-mact="renew">Renovar</button>'+
           '<button class="btn btn-gh btn-sm" data-mact="freeze">'+(m.frozen?'Reactivar':'Congelar')+'</button>'+
@@ -4553,7 +4602,7 @@ M.wa=function(mid){
       '<div class="tiny mut" style="line-height:1.6">'+
         'Última visita: <b>'+(lv?esc(rel(lv)):'nunca')+'</b> · '+
         'Clases últimos 14 días: <b>'+(r.r14||0)+'</b> · '+
-        'Membresía: <b>'+(daysBetween(today(),m.planEnd)<0?'vencida':'vence en '+daysBetween(today(),m.planEnd)+' días')+'</b>'+
+        'Membresía: <b>'+esc(C.venceTxt(m))+'</b>'+
       '</div></div></div>',
     foot:'<button class="btn btn-gh" id="waCopy">Copiar mensaje</button>'+
          '<a class="btn btn-pri" href="'+esc(waUrl)+'" target="_blank" rel="noopener">'+ic('wa',14)+' Abrir WhatsApp</a>',
