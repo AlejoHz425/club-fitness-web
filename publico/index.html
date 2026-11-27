@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<script>var CF_VERSION = '202611280230';</script>
+<script>var CF_VERSION = '202611280430';</script>
 <style>:root{color-scheme:dark}html,body{margin:0;height:100%}img{max-width:100%}[hidden]{display:none!important}</style>
 </head>
 <body>
@@ -5985,7 +5985,9 @@ function mountLogin(){
   $('#loginForm').addEventListener('submit',e=>{e.preventDefault();tryLogin();});
 }
 /* El padrón no está en esta página: quien entra lo comprueba el club.
-   Si son solo números es el DNI de un socio; si no, una cuenta del club. */
+   Desde el 27-nov-2026 hay una sola puerta: el DNI. Ya no existen las
+   cuentas con nombre de usuario («admin», «nutri»), que eran fáciles de
+   adivinar; el club, nutrición y la revisión entran con su DNI y su PIN. */
 const NET = window.CFNET;
 let entrando = false;
 
@@ -5994,14 +5996,14 @@ async function tryLogin(){
   const bruto=$('#liCode').value.trim(), pin=$('#liPin').value.trim();
   const err=$('#loginErr'), btn=$('#loginForm button[type=submit]');
   if(!bruto){ err.textContent='Escribe tu DNI'; return; }
+  if(!/^[0-9]+$/.test(bruto)){
+    err.textContent='Entra con tu DNI: solo números, sin letras.'; return; }
   if(!pin){ err.textContent='Escribe tu PIN'; return; }
   err.textContent=''; entrando=true; btn.disabled=true;
   const antes=btn.textContent; btn.textContent='Entrando…';
   let r=null, red=false;
   try{
-    r = /^[0-9]+$/.test(bruto)
-      ? await NET.rpc('cf_entrar',{p_dni:bruto,p_pin:pin})
-      : await NET.rpc('cf_entrar_staff',{p_usuario:bruto.toLowerCase(),p_clave:pin});
+    r = await NET.rpc('cf_entrar',{p_dni:bruto,p_pin:pin});
   }catch(e){ red=true; }
   entrando=false; btn.disabled=false; btn.textContent=antes;
   if(red){ err.textContent='No hay conexión con el club. Revisa tu internet y vuelve a probar.'; return; }
