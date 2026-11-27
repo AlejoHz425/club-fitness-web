@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<script>var CF_VERSION = '202611272100';</script>
+<script>var CF_VERSION = '202611280030';</script>
 <style>:root{color-scheme:dark}html,body{margin:0;height:100%}img{max-width:100%}[hidden]{display:none!important}</style>
 </head>
 <body>
@@ -1470,6 +1470,7 @@ setInterval(latir, 45000);
 document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) latir(); });
 
 window.CFNET = {
+  SB,
   rpc, sincronizar, empujar, guardar, cerrar, aplicar,
   get ses(){ return ses; },
   get hay(){ return !!(ses && ses.token); },
@@ -3064,10 +3065,15 @@ V.dowLabel=function(dows){
 
 V.nutricion=function(u){
   const m=Q.member(u.id), p=Q.plan(m.id);
+  /* el archivo que le subió su nutricionista, arriba del todo: es lo que
+     viene a ver, y muchas veces lo único que hay */
+  const caja='<div class="card card-pad"><p class="eyebrow" style="margin-bottom:8px">Tu dieta</p>'+
+    '<div data-dtbox></div></div>';
   if(!p){
-    return '<div class="card"><div class="empty"><div class="empty-ic">'+ic('leaf',22)+'</div>'+
-      '<h4>Aún no tienes plan nutricional</h4><p>La nutricionista del club lo sube desde su panel '+
-      'después de tu valoración. En cuanto esté, aparece aquí con tus comidas y macros de cada día.</p></div></div>';
+    return '<div class="stack">'+caja+
+      '<div class="card"><div class="empty"><div class="empty-ic">'+ic('leaf',22)+'</div>'+
+      '<h4>Sin plan detallado</h4><p>Si tu nutricionista te subió la dieta en un archivo, la tienes '+
+      'aquí arriba. El plan con comidas y macros día a día aparece cuando lo prepare.</p></div></div></div>';
   }
   const t=today(), hoyDow=parseYmd(t).getDay();
   const selDow = S.ctx.nutDow!=null ? +S.ctx.nutDow : hoyDow;
@@ -4234,8 +4240,169 @@ const {ic,$,$$,esc,clamp,uid,PEN,DOW,DOWL,MON,ymd,parseYmd,addDays,daysBetween,f
        today,initials,rel}=C;
 const addD=n=>ymd(addDays(new Date(),n));
 const M={}; window.CFMOD=M;
+const NET=window.CFNET, SB=NET.SB;
 
 function fld(id,label,input){return '<div class="fld"><label for="'+id+'">'+esc(label)+'</label>'+input+'</div>';}
+
+/* ── Dietas en archivo ───────────────────────────────────────
+   Angelo lo pidió así: «no siempre lo mando en gramos porque hay
+   personas que no tienen balanza; yo doy una lista de carbohidratos
+   que pueden ser, lo mismo proteína. Podría ser simplemente adjuntar
+   un archivo y nada más, y que al alumno le baste con abrirlo».
+
+   El archivo no se guarda en esta página ni en una dirección pública:
+   vive en un cajón privado del club. Para abrirlo, el servidor firma
+   un enlace que dura cinco minutos. */
+const DT = (function(){
+  const PUERTA = SB + '/functions/v1/dieta';
+  const tok = () => (NET.ses && NET.ses.token) || null;
+
+  const ICO = {pdf:'file', word:'file', excel:'file', foto:'img'};
+  const PESO = b => !b ? '' : (b<1024?b+' B':b<1048576?(b/1024).toFixed(0)+' KB':(b/1048576).toFixed(1)+' MB');
+
+  async function lista(ref){
+    try{ return await NET.rpc('cf_dietas', ref?{p_token:tok(),p_ref:ref}:{p_token:tok()}); }
+    catch(e){ return {ok:false,msg:'Sin conexión'}; }
+  }
+  async function subir(ref, archivo, nota){
+    const f = new FormData();
+    f.append('token', tok()); f.append('ref', ref);
+    f.append('nota', nota||''); f.append('archivo', archivo);
+    const r = await fetch(PUERTA+'/subir', {method:'POST', body:f});
+    return await r.json();
+  }
+  async function abrir(id){
+    const r = await fetch(PUERTA+'/abrir', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({token:tok(), id})});
+    return await r.json();
+  }
+  async function quitar(id){
+    const r = await fetch(PUERTA+'/quitar', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({token:tok(), id})});
+    return await r.json();
+  }
+
+  /* una tarjeta por dieta */
+  function fila(d, puedeQuitar){
+    return '<div class="row btw dt-f" style="gap:10px;padding:10px 0;border-bottom:1px solid var(--line)">'+
+      '<div style="min-width:0;flex:1">'+
+        '<b style="font-size:13.5px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+
+          esc(d.archivo)+'</b>'+
+        '<div class="tiny dim" style="margin-top:2px">'+esc(fmtDL(String(d.creado).slice(0,10)))+
+          (d.bytes?' · '+PESO(d.bytes):'')+'</div>'+
+        (d.nota?'<div class="tiny mut" style="margin-top:4px;line-height:1.5">'+esc(d.nota)+'</div>':'')+
+      '</div>'+
+      '<div class="row nw" style="gap:6px;flex:none">'+
+        '<button class="btn btn-pri btn-xs" data-dt="abrir" data-id="'+esc(d.id)+'">Abrir</button>'+
+        (puedeQuitar?'<button class="btn btn-gh btn-xs" data-dt="quitar" data-id="'+esc(d.id)+'" '+
+          'title="Quitar esta dieta">'+ic('x',12)+'</button>':'')+
+      '</div></div>';
+  }
+
+  /* pinta el bloque dentro de un contenedor ya puesto en pantalla */
+  async function pintar(caja, ref){
+    if(!caja) return;
+    caja.innerHTML = '<div class="tiny dim">Buscando su dieta…</div>';
+    const r = await lista(ref);
+    if(!r || !r.ok){
+      caja.innerHTML = '<div class="tiny" style="color:var(--bad)">'+esc((r&&r.msg)||'No se pudo cargar')+'</div>';
+      return;
+    }
+    const d = r.dietas||[];
+    const puede = !!r.puedeSubir;
+    caja.innerHTML =
+      (d.length ? d.map(x=>fila(x,puede)).join('')
+        : '<div class="tiny dim" style="padding:6px 0">'+
+          (puede ? 'Todavía no le has subido ninguna dieta.'
+                 : 'Tu nutricionista aún no ha subido tu dieta.')+'</div>')+
+      (puede ? '<div style="margin-top:11px">'+
+        '<button class="btn btn-gh btn-sm" data-dt="subir" data-ref="'+esc(r.ref)+'">'+
+        ic('up',14)+' Subir dieta</button>'+
+        '<div class="tiny dim" style="margin-top:6px">PDF, Word, Excel o una foto. Hasta 10 MB. '+
+        'Se guardan las seis últimas.</div></div>' : '');
+    caja.setAttribute('data-ref', r.ref||'');
+  }
+
+  /* la ventanita de subir */
+  function ventanaSubir(ref, alTerminar){
+    modal({title:'Subir dieta',sub:'El socio la verá en su app, en «Nutrición»',
+      body:'<div class="grid" style="gap:14px">'+
+        fld('dtFile','Archivo','<input class="inp" type="file" id="dtFile" '+
+          'accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png">')+
+        fld('dtNota','Nota para el socio (opcional)',
+          '<textarea class="inp" id="dtNota" rows="3" placeholder="Carbohidratos: arroz, avena, camote. '+
+          'Proteína: pollo, huevo, atún. Lo que te quede más fácil de conseguir."></textarea>')+
+        '<div class="tiny dim" style="line-height:1.5">PDF, Word, Excel o una foto, hasta 10 MB. '+
+        'Nadie más que el socio, el club y nutrición puede abrirla.</div>'+
+      '</div>',
+      foot:'<button class="btn btn-gh" data-close>Cancelar</button>'+
+           '<button class="btn btn-pri" id="dtGo">Subir</button>',
+      onMount(ov){
+        ov.querySelector('[data-close]').onclick=closeModal;
+        const bt=ov.querySelector('#dtGo');
+        bt.onclick=async()=>{
+          const f=$('#dtFile',ov).files && $('#dtFile',ov).files[0];
+          if(!f){ toast('Elige un archivo','bad'); return; }
+          if(f.size>10*1024*1024){ toast('Ese archivo pasa de 10 MB','bad'); return; }
+          bt.disabled=true; bt.textContent='Subiendo…';
+          let r; try{ r=await subir(ref,f,$('#dtNota',ov).value.trim()); }
+          catch(e){ r={ok:false,msg:'Sin conexión: vuelve a intentarlo'}; }
+          bt.disabled=false; bt.textContent='Subir';
+          if(!r||!r.ok){ toast((r&&r.msg)||'No se pudo subir','bad'); return; }
+          closeModal(); toast('Dieta subida','ok');
+          if(alTerminar) alTerminar();
+        };
+      }});
+  }
+
+  /* los clics de todo el bloque, estén donde estén */
+  document.addEventListener('click', async ev=>{
+    const b=ev.target.closest&&ev.target.closest('[data-dt]');
+    if(!b) return;
+    ev.preventDefault();
+    const que=b.getAttribute('data-dt');
+    const caja=()=>document.querySelector('[data-dtbox]');
+
+    if(que==='subir'){
+      const ref=b.getAttribute('data-ref');
+      ventanaSubir(ref, ()=>{ const c=caja(); if(c) pintar(c, c.getAttribute('data-ref')||ref); });
+      return;
+    }
+    if(que==='abrir'){
+      const t=b.textContent; b.disabled=true; b.textContent='…';
+      let r; try{ r=await abrir(b.getAttribute('data-id')); }
+      catch(e){ r={ok:false,msg:'Sin conexión'}; }
+      b.disabled=false; b.textContent=t;
+      if(!r||!r.ok){ toast((r&&r.msg)||'No se pudo abrir','bad'); return; }
+      window.open(r.url,'_blank','noopener');
+      return;
+    }
+    if(que==='quitar'){
+      const id=b.getAttribute('data-id');
+      modal({title:'Quitar esta dieta',
+        body:'<p class="tiny mut" style="line-height:1.6">El socio dejará de verla en su app. '+
+             'El archivo se borra del club y no se puede recuperar.</p>',
+        foot:'<button class="btn btn-gh" data-close>Mejor no</button>'+
+             '<button class="btn btn-pri" id="dtSi">Sí, quitarla</button>',
+        onMount(ov){
+          ov.querySelector('[data-close]').onclick=closeModal;
+          ov.querySelector('#dtSi').onclick=async()=>{
+            closeModal();
+            let r; try{ r=await quitar(id); }catch(e){ r={ok:false,msg:'Sin conexión'}; }
+            toast((r&&r.msg)||'No se pudo', (r&&r.ok)?'ok':'bad');
+            const c=caja(); if(c) pintar(c, c.getAttribute('data-ref')||'');
+          };
+        }});
+      return;
+    }
+  });
+
+  return {pintar, lista};
+})();
+window.CFDT = DT;
+
 function inp(id,o){o=o||{};
   return '<input class="inp" id="'+id+'" type="'+(o.type||'text')+'"'+
     (o.ph?' placeholder="'+esc(o.ph)+'"':'')+(o.val!=null?' value="'+esc(o.val)+'"':'')+
@@ -4488,10 +4655,18 @@ M.paciente=function(mid){
   if(lm.note) h+='<div class="card card-pad"><p class="eyebrow" style="margin-bottom:5px">Nota de la última toma</p>'+
     '<div class="tiny mut" style="line-height:1.6">'+esc(lm.note)+'</div></div>';
 
+  /* la dieta en archivo: lo que pidió Angelo */
+  h+='<div class="card card-pad"><div class="row btw" style="margin-bottom:8px">'+
+     '<p class="eyebrow" style="margin:0">Su dieta</p></div>'+
+     '<div data-dtbox data-ref="'+esc(m.ref||m.id)+'"></div></div>';
   h+='</div>';
   modal({wide:true,title:m.name,sub,body:h,
     foot:'<button class="btn btn-gh" data-act="planedit" data-m="'+mid+'">'+ic('leaf',14)+
-         (Q.plan(mid)?' Ver su plan':' Crear plan')+'</button>'+pie});
+         (Q.plan(mid)?' Ver su plan':' Crear plan')+'</button>'+pie,
+    onMount(ov){
+      const c=ov.querySelector('[data-dtbox]');
+      if(c&&window.CFDT) window.CFDT.pintar(c, c.getAttribute('data-ref'));
+    }});
 };
 
 /* ─── editar la ficha de un socio ──────────────────────────
@@ -5395,6 +5570,11 @@ window.CFR={render};
 
 /* ═══ POST-RENDER ═════════════════════════════════════════ */
 function afterRender(){
+  /* la dieta en archivo se pide al servidor, así que se rellena cuando
+     la pantalla ya está puesta */
+  const dtc=document.querySelector('#view [data-dtbox]');
+  if(dtc && window.CFDT) window.CFDT.pintar(dtc, dtc.getAttribute('data-ref')||'');
+
   /* la tira de días deja a la vista el día elegido */
   $$('.days').forEach(c=>{
     try{
