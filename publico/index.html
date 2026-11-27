@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<script>var CF_VERSION = '202611271400';</script>
+<script>var CF_VERSION = '202611271745';</script>
 <style>:root{color-scheme:dark}html,body{margin:0;height:100%}img{max-width:100%}[hidden]{display:none!important}</style>
 </head>
 <body>
@@ -2095,12 +2095,15 @@ const A={
       p_plan:null,p_meses:null});
     return m.frozen;
   },
-  renew(mid,months,planK){
+  renew(mid,months,planK,desde){
     const m=Q.member(mid);
-    const base = daysBetween(today(),m.planEnd)>0 ? parseYmd(m.planEnd) : new Date();
+    /* con fecha de inicio el plan corre desde ahí; sin ella, se le suman
+       los meses a lo que le quedaba para no quitarle días */
+    const base = desde ? parseYmd(desde)
+      : (daysBetween(today(),m.planEnd)>0 ? parseYmd(m.planEnd) : new Date());
     m.planEnd=ymd(sumaMeses(base,months));DBX.save();
     NET.empujar('cf_membresia',{p_ref:mid,p_accion:'renovar',
-      p_plan:planK||m.plan,p_meses:months});
+      p_plan:planK||m.plan,p_meses:months,p_desde:desde||null});
     return m.planEnd;
   },
   saveMeas(d){
@@ -4594,10 +4597,22 @@ M.pinreset=function(mid){
 
 M.renew=function(mid){
   const m=Q.member(mid);
+  /* si siguió viniendo con el plan ya cerrado, esas clases son a cuenta
+     del mes que está pagando: se propone arrancar en la primera */
+  const c=m.ciclo||{};
+  const adelantadas=+c.demas||0;
+  const iniProp=(adelantadas>0&&c.demasDesde)?String(c.demasDesde).slice(0,10):today();
   modal({title:'Renovar membresía',sub:m.name+' · '+plan(m.plan).n,
     body:'<div class="grid" style="gap:14px">'+
       fld('rnPlan','Plan',sel('rnPlan',Object.keys(DBX.PLANS).map(k=>[k,plan(k).n+' · '+planLbl(plan(k))]),m.plan))+
       fld('rnM','Meses',sel('rnM',[[1,'1 mes'],[3,'3 meses · 5% dto.'],[6,'6 meses · 10% dto.'],[12,'12 meses · 15% dto.']],1))+
+      fld('rnIni','Empieza el',inp('rnIni',{type:'date',val:iniProp,max:today()}))+
+      (adelantadas>0
+        ? '<div class="tiny" style="color:var(--warn);margin-top:-6px;line-height:1.5">'+
+          esc(m.name.split(' ')[0])+' ya entrenó <b>'+adelantadas+(adelantadas===1?' vez':' veces')+
+          '</b> desde el '+esc(fmtDL(iniProp))+', con el plan anterior ya cerrado. Dejando esa fecha, '+
+          'esas clases se descuentan de este plan. Si se las regalas, pon hoy.</div>'
+        : '')+
       '<div class="card card-pad" style="background:var(--bg2)"><div class="row btw">'+
         '<span class="tiny mut">Total a cobrar</span>'+
         '<span id="rnTot" style="font-size:19px;font-weight:800;letter-spacing:-.025em">—</span></div></div>'+
@@ -4614,7 +4629,8 @@ M.renew=function(mid){
       ov.querySelector('[data-close]').onclick=closeModal;
       ov.querySelector('#rnGo').onclick=()=>{
         m.plan=$('#rnPlan',ov).value;
-        const end=A.renew(mid,+$('#rnM',ov).value,m.plan);
+        const d=$('#rnIni',ov).value||null;
+        const end=A.renew(mid,+$('#rnM',ov).value,m.plan,d);
         closeModal();toast('Renovada hasta el '+fmtDL(end),'ok');window.CFR.render();
       };
     }});
