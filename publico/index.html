@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<script>var CF_VERSION = '202611271230';</script>
+<script>var CF_VERSION = '202611271400';</script>
 <style>:root{color-scheme:dark}html,body{margin:0;height:100%}img{max-width:100%}[hidden]{display:none!important}</style>
 </head>
 <body>
@@ -1086,8 +1086,11 @@ function sesLinea(m){
   const txt = c.clases==null ? (cerr?'plan cumplido':'')
             : (+c.usadas||0)+' de '+(+c.clases)+' sesiones';
   if(!txt) return '';
+  const porVenir=+c.apartadas||0;
   let h='<div class="tiny'+(cerr?'':' dim')+'" style="margin-top:3px'+
-    (cerr?';color:var(--bad);font-weight:700':'')+'">'+txt+'</div>';
+    (cerr?';color:var(--bad);font-weight:700':'')+'">'+txt+
+    /* de esas, las que todavía no ha hecho: están apartadas */
+    (porVenir>0?' <span class="dim">('+porVenir+' por venir)</span>':'')+'</div>';
   /* las que tomó con el plan ya cerrado: es lo que hay que cobrarle */
   if(cerr&&demas>0) h+='<div class="tiny" style="margin-top:1px;color:var(--warn)">'+
     'y '+demas+' clase'+(demas===1?'':'s')+' de más</div>';
