@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<script>var CF_VERSION = '202611271045';</script>
+<script>var CF_VERSION = '202611271130';</script>
 <style>:root{color-scheme:dark}html,body{margin:0;height:100%}img{max-width:100%}[hidden]{display:none!important}</style>
 </head>
 <body>
@@ -4628,7 +4628,10 @@ M.wa=function(mid){
     ' vence el '+fmtDL(m.planEnd)+'. Si renuevas antes del vencimiento mantienes tu precio actual. ¿Te lo dejo listo?';
   else msg='Hola '+first+', soy Marco del CLUB FITNESS. ¿Cómo vas con los entrenamientos? Cualquier cosa que necesites, aquí estoy.';
 
-  const waUrl='https://wa.me/'+String(m.phone||'').replace(/[^0-9]/g,'')+'?text='+encodeURIComponent(msg);
+  /* wa.me no perdona ni un espacio, y sin número abre WhatsApp sin
+     destinatario, que es peor que no ofrecer el botón. */
+  const num=String(m.phone||'').replace(/[^0-9]/g,'');
+  const waUrl=num?('https://wa.me/'+num+'?text='+encodeURIComponent(msg)):null;
   modal({title:'Mensaje para '+m.name,sub:(m.phone||'Sin teléfono registrado')+' · '+(r.why||'Seguimiento'),
     body:'<div class="grid" style="gap:14px">'+
       fld('waMsg','Mensaje sugerido','<textarea class="inp" id="waMsg" rows="6">'+esc(msg)+'</textarea>')+
@@ -4640,7 +4643,9 @@ M.wa=function(mid){
         'Membresía: <b>'+esc(C.venceTxt(m))+'</b>'+
       '</div></div></div>',
     foot:'<button class="btn btn-gh" id="waCopy">Copiar mensaje</button>'+
-         '<a class="btn btn-pri" href="'+esc(waUrl)+'" target="_blank" rel="noopener">'+ic('wa',14)+' Abrir WhatsApp</a>',
+         (waUrl
+           ? '<a class="btn btn-pri" href="'+esc(waUrl)+'" target="_blank" rel="noopener">'+ic('wa',14)+' Abrir WhatsApp</a>'
+           : '<button class="btn btn-pri" data-act="editsoc" data-m="'+esc(m.id)+'">Anotar su celular</button>'),
     onMount(ov){
       ov.querySelector('#waCopy').onclick=()=>copy($('#waMsg',ov).value);
     }});
