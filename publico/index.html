@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<script>var CF_VERSION = '202611270830';</script>
+<script>var CF_VERSION = '202611270930';</script>
 <style>:root{color-scheme:dark}html,body{margin:0;height:100%}img{max-width:100%}[hidden]{display:none!important}</style>
 </head>
 <body>
@@ -1623,6 +1623,12 @@ const Q={
       const a=L[i],b=L[j];
       const clave=[a.id,b.id].sort().join('|');
       if(vistos.has(clave))continue;
+      /* Dos documentos distintos son dos personas distintas: no hay nada
+         que confirmar. Esto solo mira nombres que se parecen cuando a
+         alguno le falta el documento. */
+      if(a.dni&&b.dni&&a.dni!==b.dni)continue;
+      /* Y una ficha dada de baja no es un duplicado que resolver hoy. */
+      if(!a.active||!b.active)continue;
       const pa=norm(a.name),pb=norm(b.name);
       if(pa.length<2||pb.length<2)continue;
       /* El nombre de pila manda: Jhoao y Joel son hermanos, no la misma
@@ -2267,7 +2273,7 @@ function meterBar(pct,cls){
 }
 function planPill(m){
   const p=plan(m.plan),d=daysBetween(today(),m.planEnd);
-  if(!m.active)return '<span class="pill p-n">Inactivo</span>';
+  if(!m.active)return '<span class="pill p-n">Baja</span>';
   if(m.frozen)return '<span class="pill p-n">'+ic('snow',11)+' Congelada</span>';
   if(m.planEnd&&d<0)return '<span class="pill p-bad"><i class="dot"></i> Vencida</span>';
   if(C.sinSesiones(m))return '<span class="pill p-bad"><i class="dot"></i> Sin sesiones</span>';
@@ -3494,6 +3500,11 @@ V.socios=function(){
   const f=S.seg.soc||'todos';
   let list=DBX.db.members.slice();
   if(qs)list=list.filter(m=>(m.name+' '+(m.dni||'')+' '+m.email+' '+m.phone).toLowerCase().indexOf(qs)>=0);
+  /* Los que se fueron y no renovaron no ensucian la lista del día a día.
+     Si el club busca a alguien por su nombre, sí sale: para eso está la
+     pastilla «Baja». */
+  if(f!=='bajas' && f!=='repes' && !qs) list=list.filter(m=>m.active);
+  if(f==='bajas') list=list.filter(m=>!m.active);
   if(f==='riesgo')list=list.filter(m=>Q.risk(m.id).lvl>=2);
   if(f==='vencidos')list=list.filter(m=>m.planEnd&&daysBetween(today(),m.planEnd)<0&&!m.frozen);
   if(f==='sinses')list=list.filter(m=>m.active&&!m.frozen&&C.sinSesiones(m));
@@ -3519,6 +3530,7 @@ V.socios=function(){
   }
 
   const nFalta=DBX.db.members.filter(m=>!m.demo&&m.active&&Q.faltaInfo(m).length).length;
+  const nBajas=DBX.db.members.filter(m=>!m.active).length;
   const nVenc=DBX.db.members.filter(m=>m.planEnd&&!m.frozen&&
     daysBetween(today(),m.planEnd)<0).length;
   const nSin=DBX.db.members.filter(m=>m.active&&!m.frozen&&C.sinSesiones(m)).length;
@@ -3535,17 +3547,22 @@ V.socios=function(){
         ['sinses','Sin sesiones'+(nSin?' · '+nSin:'')],
         ['congelados','Congelados'],
         ['falta','Falta'+(nFalta?' · '+nFalta:'')],
-        ['repes','Repetidas'+(repes.length?' · '+repes.length:'')]].map(k=>
+        ['repes','Repetidas'+(repes.length?' · '+repes.length:'')],
+        ['bajas','Bajas'+(nBajas?' · '+nBajas:'')]].map(k=>
       '<button class="'+(f===k[0]?'on':'')+'" data-socf="'+k[0]+'">'+esc(k[1])+'</button>').join('')+'</div></div>';
 
   if(f==='falta'){
-    const sinDni=DBX.db.members.filter(m=>!m.dni).length;
+    const sinDni=DBX.db.members.filter(m=>m.active&&!m.dni).length;
     h+='<div class="card card-pad"><div class="tiny mut" style="line-height:1.6">'+
       'Fichas a las que les falta algún dato, las más incompletas arriba. '+
       (sinDni?'<b style="color:var(--bad)">A '+sinDni+' les falta el DNI: hasta que lo tengas no pueden entrar a la app.</b> ':'')+
       'El resto hace falta para cobrar, avisar por WhatsApp o clasificar su composición. '+
       'Toca «Editar» y se llena ahí mismo.</div></div>';
   }
+  if(f==='bajas') h+='<div class="card card-pad"><div class="tiny mut" style="line-height:1.6">'+
+    'Socios antiguos que no renovaron. No se borran: su historial y sus valoraciones '+
+    'siguen ahí por si vuelven. No cuentan como vencidos ni como fichas incompletas, '+
+    'y no salen en el resto de listas.</div></div>';
   if(f==='repes') h+='<div class="card card-pad"><div class="tiny mut" style="line-height:1.6">'+
     'Nombres tan parecidos que podrían ser la misma persona anotada dos veces. Van en parejas. '+
     'Cuando confirmes que son dos personas distintas, pulsa <b>«Son distintas»</b> y la pareja deja de aparecer.</div></div>';
