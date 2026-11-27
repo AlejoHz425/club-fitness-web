@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<script>var CF_VERSION = '202611280030';</script>
+<script>var CF_VERSION = '202611280230';</script>
 <style>:root{color-scheme:dark}html,body{margin:0;height:100%}img{max-width:100%}[hidden]{display:none!important}</style>
 </head>
 <body>
@@ -1355,9 +1355,10 @@ function aplicar(p){
   }));
   db.bookings = (p.reservas||[]).map(r=>({
     id:r.id, m:r.m==='_otro'?'_otro':(r.inv?'_inv':r.m), inv:r.inv||null,
-    c:r.c, date:r.date, st:r.st, sinHora:!!r.sinHora,
+    c:r.c, date:r.date, st:r.st, sinHora:!!r.sinHora, puesto:r.puesto||null,
     at: r.c ? r.date+'T'+((db.classes.find(c=>c.id===r.c)||{}).time||'00:00') : r.date
   }));
+  db.avisos = p.avisos||[];
   db.meas  = (p.valoraciones||[]).map(v=>{
     const d=Object.assign({},v);
     ['w','h','peso','talla','bf','fat','lean','arm','armF','waist','hip','thigh','calf',
@@ -2546,6 +2547,21 @@ V.inicio=function(u){
    su hora. Lo que se cierra hasta el domingo es apartar horas nuevas. */
 const WK_MAX = 1;
 
+/* Lo que el club tenga que contarle al socio: hoy, que le tocó entrar
+   desde la lista de espera. Va arriba del todo y se quita al leerlo. */
+function avisosDelSocio(){
+  const av=(DBX.db.avisos||[]).filter(x=>!x.visto);
+  if(!av.length) return '';
+  return av.map(x=>
+    '<div class="card card-pad" style="border-color:#2E5C3A;background:#16221A">'+
+      '<div class="row btw" style="gap:10px;align-items:flex-start">'+
+        '<div style="min-width:0"><p class="eyebrow" style="margin:0 0 4px;color:#7BD69B">Aviso del club</p>'+
+        '<div style="font-size:13.5px;line-height:1.5">'+esc(x.texto)+'</div></div>'+
+        '<button class="btn btn-gh btn-xs" data-act="vistoav" data-k="'+esc(x.id)+'" '+
+          'style="flex:none">Entendido</button>'+
+      '</div></div>').join('');
+}
+
 V.reservar=function(u){
   const m    = Q.member(u.id);
   const hoy   = today();
@@ -2625,6 +2641,7 @@ V.reservar=function(u){
     : dias===1?'queda 1 día':'quedan '+dias+' días';
 
   let h='<div class="stack">';
+  h+=avisosDelSocio();
   h+='<div class="mb">'+
     '<div class="mb-top"><div class="mb-k">Tu plan</div>'+
       '<div class="mb-plan">'+esc(ritmo)+'</div>'+
@@ -2771,7 +2788,8 @@ V.reservar=function(u){
       let act;
       if(bloqD&&!past) act='<span class="pill p-n">No disponible</span>';
       else if(past) act='<span class="pill p-n">Terminada</span>';
-      else if(mine&&mine.st==='espera') act='<span class="pill p-warn">En espera</span>'+
+      else if(mine&&mine.st==='espera') act='<span class="pill p-warn">En espera'+
+        (mine.puesto?' · puesto '+mine.puesto:'')+'</span>'+
         '<button class="btn btn-gh btn-xs" data-act="cancel" data-c="'+c.id+'" data-d="'+sel+'">Salir</button>';
       else if(mine) act='<span class="pill p-ok">'+ic('check',11)+' Reservada</span>'+
         '<button class="btn btn-gh btn-xs" data-act="cancel" data-c="'+c.id+'" data-d="'+sel+'">Cancelar</button>';
@@ -5698,7 +5716,28 @@ document.addEventListener('click',e=>{
   const act=g('data-act'); if(!act)return;
   const mid=g('data-m'), cid=g('data-c'), date=g('data-d');
 
+  if(act==='vistoav'){
+    const k=g('data-k');
+    (DBX.db.avisos||[]).forEach(x=>{ if(String(x.id)===String(k)) x.visto=true; });
+    DBX.save();
+    window.CFNET.empujar('cf_aviso_visto',{p_id:k});
+    render(); return;
+  }
   if(act==='book'){
+    /* si no quedan sitios, esto es ponerse en la cola: eso lo decide y
+       lo ordena el club, que es quien sabe quién llegó antes */
+    const cl0=Q.cls(cid);
+    if(cl0 && (cl0.cap - Q.taken(cid,date))<=0){
+      (async()=>{
+        let r; try{ r=await window.CFNET.rpc('cf_esperar',
+          {p_token:(window.CFNET.ses||{}).token,p_bloque:cid,p_fecha:date}); }
+        catch(e){ r={ok:false,msg:'Sin conexión: vuelve a intentarlo'}; }
+        if(r&&r.motivo==='sesion'){ window.CFNET.cerrar(true); return; }
+        toast((r&&r.msg)||'No se pudo', (r&&r.ok)?'info':'bad');
+        if(r&&r.ok){ await window.CFNET.sincronizar(); render(); }
+      })();
+      return;
+    }
     const r=A.book(S.user.id,cid,date);
     toast(r.msg,r.ok?(r.st==='espera'?'info':'ok'):'bad');
     if(r.ok)render();
